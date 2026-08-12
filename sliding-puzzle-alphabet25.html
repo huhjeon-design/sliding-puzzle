@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>알파벳 25 퍼즐</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --panel: #ffffff;
+    --tile: #2f2a24;
+    --tile-text: #f4f3ef;
+    --accent: #c1502e;
+    --accent-soft: #f0d9cf;
+    --muted: #8a8378;
+    --border: #e4e1d8;
+    --shadow: 0 8px 24px rgba(47, 42, 36, 0.10);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--tile);
+    padding: 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 440px;
+    background: var(--panel);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px 24px;
+    border: 1px solid var(--border);
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 20px;
+  }
+  .stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .stats .val {
+    color: var(--tile);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    aspect-ratio: 1 / 1;
+    background: var(--border);
+    border-radius: 14px;
+    padding: 8px;
+    margin-bottom: 20px;
+  }
+  .tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tile);
+    color: var(--tile-text);
+    font-size: clamp(14px, 4.6vw, 22px);
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.08s ease, background 0.15s ease;
+    border: none;
+  }
+  .tile:active { transform: scale(0.96); }
+  .tile.empty {
+    background: transparent;
+    cursor: default;
+    pointer-events: none;
+  }
+  .tile.movable:hover {
+    background: var(--accent);
+  }
+  .tile.wide {
+    font-size: clamp(11px, 3.3vw, 16px);
+    letter-spacing: -0.5px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+  }
+  button.action {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  button.action:active { opacity: 0.8; }
+  .btn-primary {
+    background: var(--tile);
+    color: var(--tile-text);
+  }
+  .btn-secondary {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .win-banner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+  }
+  .win-banner.show { display: flex; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>알파벳 25 퍼즐</h1>
+    <p class="sub">빈 칸 옆의 타일을 눌러 A부터 W, 그리고 XYZ까지 순서대로 맞춰보세요. (5x5, 24타일 + 빈칸 1개, 알파벳 26개 전부 포함)</p>
+
+    <div class="win-banner" id="winBanner">
+      🎉 완성! <span id="winSummary"></span>
+    </div>
+
+    <div class="stats">
+      <span>이동 횟수: <span class="val" id="moveCount">0</span></span>
+      <span>시간: <span class="val" id="timer">00:00</span></span>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="controls">
+      <button class="action btn-secondary" id="shuffleBtn">새로 섞기</button>
+      <button class="action btn-primary" id="restartBtn">다시 시작</button>
+    </div>
+  </div>
+
+<script>
+  const SIZE = 5;
+  const EMPTY = SIZE * SIZE - 1;
+  // A ~ W(23글자) + XYZ를 한 타일로 묶어서 24타일 + 빈칸 1개 = 5x5(25칸). 알파벳 26개 전부 포함.
+  const SYMBOLS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','XYZ'];
+  const WIDE_INDEX = SYMBOLS.length - 1;
+  const boardEl = document.getElementById('board');
+  const moveCountEl = document.getElementById('moveCount');
+  const timerEl = document.getElementById('timer');
+  const winBanner = document.getElementById('winBanner');
+  const winSummary = document.getElementById('winSummary');
+
+  let tiles = [];
+  let moveCount = 0;
+  let startTime = null;
+  let timerInterval = null;
+  let won = false;
+
+  function solvedTiles() {
+    return Array.from({ length: SIZE * SIZE }, (_, i) => i);
+  }
+
+  function indexToRC(i) {
+    return [Math.floor(i / SIZE), i % SIZE];
+  }
+
+  function isAdjacent(a, b) {
+    const [r1, c1] = indexToRC(a);
+    const [r2, c2] = indexToRC(b);
+    return (r1 === r2 && Math.abs(c1 - c2) === 1) || (c1 === c2 && Math.abs(r1 - r2) === 1);
+  }
+
+  function shuffle() {
+    tiles = solvedTiles();
+    let emptyPos = EMPTY;
+    // Solved 상태에서 유효한 랜덤 이동을 반복해 항상 풀 수 있는 배치를 만든다.
+    let lastMoved = -1;
+    for (let i = 0; i < 800; i++) {
+      const neighbors = [];
+      const [r, c] = indexToRC(emptyPos);
+      if (r > 0) neighbors.push(emptyPos - SIZE);
+      if (r < SIZE - 1) neighbors.push(emptyPos + SIZE);
+      if (c > 0) neighbors.push(emptyPos - 1);
+      if (c < SIZE - 1) neighbors.push(emptyPos + 1);
+      const candidates = neighbors.filter(n => n !== lastMoved);
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      [tiles[emptyPos], tiles[pick]] = [tiles[pick], tiles[emptyPos]];
+      lastMoved = emptyPos;
+      emptyPos = pick;
+    }
+    moveCount = 0;
+    won = false;
+    startTime = null;
+    clearInterval(timerInterval);
+    timerEl.textContent = '00:00';
+    moveCountEl.textContent = '0';
+    winBanner.classList.remove('show');
+    render();
+  }
+
+  function render() {
+    boardEl.innerHTML = '';
+    const emptyPos = tiles.indexOf(EMPTY);
+    tiles.forEach((value, pos) => {
+      const btn = document.createElement('button');
+      if (value === EMPTY) {
+        btn.className = 'tile empty';
+      } else {
+        let cls = 'tile' + (isAdjacent(pos, emptyPos) ? ' movable' : '');
+        if (value === WIDE_INDEX) cls += ' wide';
+        btn.className = cls;
+        btn.textContent = SYMBOLS[value];
+        btn.addEventListener('click', () => tryMove(pos));
+      }
+      boardEl.appendChild(btn);
+    });
+  }
+
+  function tryMove(pos) {
+    if (won) return;
+    const emptyPos = tiles.indexOf(EMPTY);
+    if (!isAdjacent(pos, emptyPos)) return;
+    [tiles[pos], tiles[emptyPos]] = [tiles[emptyPos], tiles[pos]];
+    moveCount++;
+    moveCountEl.textContent = moveCount;
+    if (!startTime) {
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
+    }
+    render();
+    checkWin();
+  }
+
+  function updateTimer() {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    timerEl.textContent = `${m}:${s}`;
+  }
+
+  function checkWin() {
+    const solved = solvedTiles();
+    if (tiles.every((v, i) => v === solved[i])) {
+      won = true;
+      clearInterval(timerInterval);
+      winSummary.textContent = `${moveCount}번 만에, ${timerEl.textContent} 걸렸어요.`;
+      winBanner.classList.add('show');
+    }
+  }
+
+  document.getElementById('shuffleBtn').addEventListener('click', shuffle);
+  document.getElementById('restartBtn').addEventListener('click', shuffle);
+
+  shuffle();
+</script>
+</body>
+</html>
